@@ -1,0 +1,200 @@
+package src.gui;
+
+import javax.swing.*;
+import java.awt.*;
+import src.services.BankService;
+import src.models.Customer;
+import java.util.List;
+
+public class MainFrame extends JFrame {
+    private BankService bankService;
+    private JPanel mainPanel;
+    private JTextArea customerListArea;
+    
+    public MainFrame() {
+        bankService = new BankService();
+        setupUI();
+    }
+    
+    private void setupUI() {
+        setTitle("Banka Uygulaması");
+        setSize(800, 600);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        
+        mainPanel = new JPanel();
+        mainPanel.setLayout(new BorderLayout());
+        
+        // Menü oluşturma
+        JMenuBar menuBar = createMenuBar();
+        setJMenuBar(menuBar);
+        
+        // Ana panel bileşenleri
+        JPanel buttonPanel = createButtonPanel();
+        mainPanel.add(buttonPanel, BorderLayout.NORTH);
+        
+        // Müşteri listesi paneli
+        createCustomerListPanel();
+        
+        add(mainPanel);
+    }
+    
+    private void createCustomerListPanel() {
+        customerListArea = new JTextArea(20, 40);
+        customerListArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(customerListArea);
+        mainPanel.add(scrollPane, BorderLayout.CENTER);
+    }
+    
+    private void updateCustomerList() {
+        List<Customer> customerList = bankService.getAllCustomers();
+        StringBuilder sb = new StringBuilder();
+        sb.append("KAYITLI MÜŞTERİLER:\n");
+        sb.append("----------------------------------------\n");
+        
+        for (Customer customer : customerList) {
+            sb.append("ID: ").append(customer.getId()).append("\n");
+            sb.append("Ad: ").append(customer.getName()).append("\n");
+            sb.append("Ana Hesap: ").append(customer.getMainAccount() != null ? 
+                customer.getMainAccount().getAccountNumber() : "Yok").append("\n");
+            sb.append("Tüm Hesaplar:\n");
+            
+            for (Account account : customer.getAccounts()) {
+                sb.append("  Hesap No: ").append(account.getAccountNumber())
+                  .append(" - Bakiye: ").append(account.getBalance()).append(" TL")
+                  .append(account == customer.getMainAccount() ? " (Ana Hesap)" : "")
+                  .append("\n");
+            }
+            sb.append("----------------------------------------\n");
+        }
+        
+        customerListArea.setText(sb.toString());
+    }
+    
+    private JPanel createButtonPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new FlowLayout());
+        
+        JButton newCustomerBtn = new JButton("Yeni Müşteri");
+        JButton newAccountBtn = new JButton("Yeni Hesap");
+        JButton transferBtn = new JButton("Para Transferi");
+        JButton refreshBtn = new JButton("Listeyi Güncelle");
+        
+        // Yeni Müşteri butonu için güncellenmiş ActionListener
+        newCustomerBtn.addActionListener(e -> {
+            String name = JOptionPane.showInputDialog("Müşteri Adı:");
+            if (name != null && !name.trim().isEmpty()) {
+                String password = JOptionPane.showInputDialog("Şifre belirleyin:");
+                if (password != null && !password.trim().isEmpty()) {
+                    Customer customer = new Customer(name, password);
+                    bankService.addCustomer(customer);
+                    updateCustomerList();
+                    JOptionPane.showMessageDialog(this, 
+                        "Müşteri başarıyla eklendi!\nMüşteri ID: " + customer.getId());
+                }
+            }
+        });
+        
+        // Para Transferi butonu için güncellenmiş ActionListener
+        transferBtn.addActionListener(e -> {
+            String[] options = {"Hesap Numarasına", "Müşteri ID'sine"};
+            int transferType = JOptionPane.showOptionDialog(this,
+                "Transfer türünü seçin:",
+                "Para Transferi",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
+            
+            String fromAccountId = JOptionPane.showInputDialog("Gönderen Hesap No:");
+            if (fromAccountId != null && !fromAccountId.trim().isEmpty()) {
+                if (transferType == 0) {
+                    // Hesap numarasına transfer
+                    String toAccountId = JOptionPane.showInputDialog("Alıcı Hesap No:");
+                    if (toAccountId != null && !toAccountId.trim().isEmpty()) {
+                        processTransfer(fromAccountId, toAccountId, true);
+                    }
+                } else {
+                    // Müşteri ID'sine transfer
+                    String toCustomerId = JOptionPane.showInputDialog("Alıcı Müşteri ID:");
+                    if (toCustomerId != null && !toCustomerId.trim().isEmpty()) {
+                        processTransfer(fromAccountId, toCustomerId, false);
+                    }
+                }
+            }
+        });
+        
+        // Yeni Hesap butonu için ActionListener
+        newAccountBtn.addActionListener(e -> {
+            String customerId = JOptionPane.showInputDialog("Müşteri ID:");
+            if (customerId != null && !customerId.trim().isEmpty()) {
+                String[] options = {"Vadesiz Hesap", "Tasarruf Hesabı"};
+                int accountType = JOptionPane.showOptionDialog(this,
+                    "Hesap türünü seçin:",
+                    "Yeni Hesap",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+                
+                Customer customer = bankService.getCustomer(customerId);
+                if (customer != null) {
+                    bankService.createAccount(customer, accountType == 1 ? "Savings" : "Checking");
+                    updateCustomerList();
+                    JOptionPane.showMessageDialog(this, "Hesap başarıyla oluşturuldu!");
+                } else {
+                    JOptionPane.showMessageDialog(this, "Müşteri bulunamadı!", "Hata", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+        
+        // Yeni eklenen refresh butonu
+        refreshBtn.addActionListener(e -> updateCustomerList());
+        
+        panel.add(newCustomerBtn);
+        panel.add(newAccountBtn);
+        panel.add(transferBtn);
+        panel.add(refreshBtn);
+        
+        return panel;
+    }
+    
+    private void processTransfer(String fromId, String toId, boolean isAccountTransfer) {
+        String amountStr = JOptionPane.showInputDialog("Transfer Miktarı:");
+        try {
+            double amount = Double.parseDouble(amountStr);
+            boolean success;
+            
+            if (isAccountTransfer) {
+                success = bankService.transferByAccountNumbers(fromId, toId, amount);
+            } else {
+                success = bankService.transferToCustomer(fromId, toId, amount);
+            }
+            
+            if (success) {
+                updateCustomerList();
+                JOptionPane.showMessageDialog(this, "Transfer başarıyla gerçekleşti!");
+            } else {
+                JOptionPane.showMessageDialog(this, "Transfer başarısız!", "Hata", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Geçersiz miktar!", "Hata", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    
+    private JMenuBar createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("Dosya");
+        JMenu operationsMenu = new JMenu("İşlemler");
+        
+        JMenuItem exitItem = new JMenuItem("Çıkış");
+        exitItem.addActionListener(e -> System.exit(0));
+        
+        fileMenu.add(exitItem);
+        menuBar.add(fileMenu);
+        menuBar.add(operationsMenu);
+        
+        return menuBar;
+    }
+} 
